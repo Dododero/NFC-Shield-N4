@@ -148,18 +148,21 @@ boolean PN532::SAMConfig(void)
 /*	as initiator successfully.                      	       */
 uint32_t PN532::configurePeerAsInitiator(uint8_t baudrate) 
 {
-  //InListPassiveTarget
-  pn532_packetbuffer[0] = 0xD4;
-  pn532_packetbuffer[1] = 0x4A;
-  pn532_packetbuffer[2] = 0x01;
-  pn532_packetbuffer[3] = 0x00;
 
-  //targetData
-  pn532_packetbuffer[4] = 0x01; //target no
-  pn532_packetbuffer[5] = 0x00; 
-  pn532_packetbuffer[6] = 0x04; //sans_res
+  pn532_packetbuffer[0] = PN532_INJUMPFORDEP;
+  pn532_packetbuffer[1] = 0x01; //Active Mode
+  pn532_packetbuffer[2] = baudrate;// Use 1 or 2. //0 i.e 106kps is not supported yet
+  pn532_packetbuffer[3] = 0x01; //Indicates Optional Payload is present
+
+  //Polling request payload
+  pn532_packetbuffer[4] = 0x00; 
+  pn532_packetbuffer[5] = 0xFF; 
+  pn532_packetbuffer[6] = 0xFF; 
   pn532_packetbuffer[7] = 0x00; 
   pn532_packetbuffer[8] = 0x00; 
+
+  if (!sendCommandCheckAck(pn532_packetbuffer, 9))
+    return false;
 
   // read data packet
   read(pn532_packetbuffer, 19+6);
@@ -183,7 +186,8 @@ uint32_t PN532::configurePeerAsInitiator(uint8_t baudrate)
 /*Parameter:-char* dataOut,data buffer to send;                       */
 /*	    -char* dataIn,data buffer to save the data receive.       */
 /*Return:   boolean,ture = No error                                   */
-boolean PN532::initiatorTxRx(char* dataOut,char* dataIn)
+/*Change by Dododero, to read data of Android 4.4 */
+boolean PN532::initiatorTxRx(byte* dataOut,char* dataIn)
 {
   pn532_packetbuffer[0] = PN532_INDATAEXCHANGE;
   pn532_packetbuffer[1] = 0x01; //Target 01
@@ -191,13 +195,14 @@ boolean PN532::initiatorTxRx(char* dataOut,char* dataIn)
     for(uint8_t iter=(2+0);iter<(2+16);iter++)
   {
     pn532_packetbuffer[iter] = dataOut[iter-2]; //pack the data to send to target
+	//Serial.println(dataOut[iter-2] , HEX); // displays the data sent
   }
 
   if (! sendCommandCheckAck(pn532_packetbuffer, 18))
     return false;
 
   // read data packet
-  read(pn532_packetbuffer, 18+6);
+  read(pn532_packetbuffer, 18);
 
 #ifdef PN532_P2P_DEBUG
   Serial.println();
@@ -217,68 +222,46 @@ boolean PN532::initiatorTxRx(char* dataOut,char* dataIn)
 
   return (pn532_packetbuffer[7] == 0x00); //No error
 }
-/*******************************************************************************************************************************
-**************************************PN532 TARGET*********************************************************
-********************************************************************************************************************************
-********************************************************************************************************************************
-*/
+
 uint32_t PN532::configurePeerAsTarget() 
 {
-  byte  echange[] = 
-{
-0xD4, //0
-0x4A, //1
-0x01,
-0x00, //3
-  
-0x01, //4
-0x00,0x04,//5-6 Sens_Res
-0x60, //7 sel_res
-0x04, //8 length of the NFCID
-0x08,0x9D,0x64,0xA2, //9-12 random nfcid
-0x05,0x75,0x80,0x70,0x02, //13-17 ats
-
-0x00,//14 CLAss
-0xA4, // 15 INS
-0x04, // 16 P1
-0x00, // 17p2
-0x07, //18 length of the app name
-0xF0,0x00,0x01,0x02,0x03,0x04,0x05,0x06 //26 app name defined ...
- };
-  
-  
-  for(uint8_t i = 0;i < echange[26];i ++)
+  byte pbuffer[38] =      { 
+    PN532_TGINITASTARGET, 
+    0x00,
+    0x08, 0x00, //SENS_RES
+    0x12, 0x34, 0x56, //NFCID1
+    0x40, //SEL_RES
+    0x01, 0xFE, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, // POL_RES
+    0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 
+    0xFF, 0xFF,
+    0xAA, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, //NFCID3t: Change this to desired value
+    0x00, 0x00 //Length of general and historical bytes
+  };
+  for(uint8_t i = 0;i < 38;i ++)
   {
-    echange[i];
+    pn532_packetbuffer[i] = pbuffer[i];
   }
-  
+  if (! sendCommandCheckAck(pn532_packetbuffer, 38))
+    return false;
 
   // read data packet
-  read(echange, 13+4);
+  read(pn532_packetbuffer, 18+6);
 
 #ifdef PN532DEBUG
   Serial.println();
   // check some basic stuff
 
   Serial.println("PEER_TARGET");
-  for(uint8_t i=0;i<19+8;i++)
+  for(uint8_t i=0;i<18+6;i++)
   {
-    Serial.print(echange[i], HEX); 
+    Serial.print(pn532_packetbuffer[i], HEX); 
     Serial.println(" ");
   }
 #endif
 
-  return (echange[17] == 0x00); //No error as it received all response
+  return (pn532_packetbuffer[23] == 0x00); //No error as it received all response
 }
-
-/*
-**********************
-**********************
-*****RECEIVE DATA*****
-**********************
-**********************
-*/
-/*Function: Receive data first and then transmit data to the initiator*/
+/*Function: Recieve data first and then transmit data to the initiator*/
 uint32_t PN532::targetTxRx(char* dataOut,char* dataIn)
 {
   /* Receiving from Initiator */
@@ -335,14 +318,6 @@ uint32_t PN532::targetTxRx(char* dataOut,char* dataIn)
   }
 
 }
-/**********************END**********************/
-
-
-
-
-
-
-
 
 uint32_t PN532::authenticateBlock(uint8_t cardnumber /*1 or 2*/,uint32_t cid /*Card NUID*/, uint8_t blockaddress /*0 to 63*/,uint8_t authtype/*Either KEY_A or KEY_B */, uint8_t * keys) 
 {
@@ -489,12 +464,12 @@ boolean PN532::writeMemoryBlock(uint8_t cardnumber,uint8_t blockaddress,uint8_t 
     return false;
   }
 }
-
+/* opening a connection with a smartphone */
 uint32_t PN532::readPassiveTargetID(uint8_t cardbaudrate) 
 {
   uint32_t cid;
 
-  pn532_packetbuffer[0] = PN532_INLISTPASSIVETARGET;
+  pn532_packetbuffer[0] = 0x4A;
   pn532_packetbuffer[1] = 1;  // max 1 cards at once (we can set this to 2 later)
   pn532_packetbuffer[2] = cardbaudrate;
 
@@ -522,10 +497,22 @@ uint32_t PN532::readPassiveTargetID(uint8_t cardbaudrate)
   for (uint8_t i=0; i< pn532_packetbuffer[12]; i++) {
     cid <<= 8;
     cid |= pn532_packetbuffer[13+i];
+	Serial.print(" octet ");
+	Serial.print(i);
+	Serial.print(" = ");
     Serial.print(" 0x"); 
     Serial.print(pn532_packetbuffer[13+i], HEX);
   }
-
+  Serial.println("");
+ for (uint8_t i=0; i< pn532_packetbuffer[12]; i++) {
+    cid <<= 8;
+    cid |= pn532_packetbuffer[17+i];
+	Serial.print(" octet ");
+	Serial.print(i);
+	Serial.print(" = ");
+    Serial.print(" 0x"); 
+    Serial.print(pn532_packetbuffer[17+i], HEX);
+  }
 #ifdef PN532DEBUG
   Serial.println("TargetID");
   for(uint8_t i=0;i<20;i++)

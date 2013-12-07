@@ -73,7 +73,7 @@ public:
 
   uint32_t configurePeerAsInitiator(uint8_t baudrate /* Any number from 0-2. 0 for 106kbps or 1 for 201kbps or 2 for 424kbps */); //106kps is not supported
   uint32_t configurePeerAsTarget(); 
-  boolean initiatorTxRx(char* dataOut,char* dataIn);
+  boolean initiatorTxRx(byte* dataOut,char* dataIn);
   uint32_t targetTxRx(char* dataOut,char* dataIn);
 
   boolean sendCommandCheckAck(uint8_t *cmd, uint8_t cmdlen, uint16_t timeout = 1000);
